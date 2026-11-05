@@ -95,10 +95,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
       fov.addEventListener('change', updateFov);
 
-      // XR globals.
-      let xrButton = null;
-      let xrImmersiveRefSpace = null;
-      let xrInlineRefSpace = null;
+     // XR globals.
+let xrButton = null;
+let xrButtonNeu = null; // New button for AR
+
+let xrImmersiveRefSpace = null;
+let xrInlineRefSpace = null;
 
       // WebGL scene globals.
       let gl = null;
@@ -106,19 +108,33 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       let scene = new Scene();
       let solarSystem = new Gltf2Node({url: 'media/gltf/space/space.gltf'});
       scene.addNode(solarSystem);
-      scene.addNode(new SkyboxNode({url: 'media/textures/milky-way-4k.png'}));
-
+let skybox = new SkyboxNode({url: 'media/textures/milky-way-4k.png'});
+scene.addNode(skybox);
       function initXR() {
         xrButton = new WebXRButton({
           onRequestSession: onRequestSession,
           onEndSession: onEndSession
         });
         document.querySelector('header').appendChild(xrButton.domElement);
+        // New AR button
+xrButtonNeu = new WebXRButton({
+  onRequestSession: onRequestSessionNeu,
+  onEndSession: onEndSession,
+  textEnterXRTitle: "START AR",
+  textXRNotFoundTitle: "AR NOT FOUND",
+  textExitXRTitle: "EXIT AR"
+});
+
+document.querySelector('header').appendChild(xrButtonNeu.domElement);
 
         if (navigator.xr) {
           navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
             xrButton.enabled = supported;
           });
+          // Check if AR is supported
+navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+  xrButtonNeu.enabled = supported;
+});
 
           // Start up an inline session, which should always be supported on
           // browsers that support WebXR regardless of the available hardware.
@@ -139,6 +155,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           onSessionStarted(session);
         });
       }
+      function onRequestSessionNeu() {
+  return navigator.xr.requestSession('immersive-ar').then((session) => {
+    xrButtonNeu.setSession(session);
+    session.isImmersive = true;
+    session.isAR = true;
+    onSessionStarted(session);
+  });
+}
 
       function onSessionStarted(session) {
         session.addEventListener('end', onSessionEnded);
@@ -200,11 +224,18 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
       }
 
       function onSessionEnded(event) {
-        // Only reset the button when the immersive session ends.
-        if (event.session.isImmersive) {
-          xrButton.setSession(null);
-        }
-      }
+  const session = event.session;
+
+  if (session.isImmersive) {
+    if (session.isAR) {
+      // AR session ended
+      xrButtonNeu.setSession(null);
+    } else {
+      // VR session ended
+      xrButton.setSession(null);
+    }
+  }
+}
 
       // Called every time a XRSession requests that a new frame be drawn.
       function onXRFrame(t, frame) {
@@ -220,8 +251,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
           refSpace = getAdjustedRefSpace(refSpace);
         }
 
-        let pose = frame.getViewerPose(refSpace);
+let pose = frame.getViewerPose(refSpace);
 
+// Hide skybox in AR, show it in VR and inline mode
+skybox.visible = !session.isAR;
+
+scene.startFrame();
         scene.startFrame();
 
         session.requestAnimationFrame(onXRFrame);
@@ -229,7 +264,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
         if (pose) {
           let glLayer = session.renderState.baseLayer;
           gl.bindFramebuffer(gl.FRAMEBUFFER, glLayer.framebuffer);
-          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+// AR: transparent background
+// VR and Inline: opaque background
+if (session.isAR) {
+  gl.clearColor(0, 0, 0, 0);
+} else {
+  gl.clearColor(0, 0, 0, 1);
+}
+
+gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
           for (let view of pose.views) {
             let viewport = glLayer.getViewport(view);
